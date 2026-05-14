@@ -1,6 +1,6 @@
-const STATIC_CACHE = 'recall-static-v1';
-const DATA_CACHE   = 'recall-data-v1';
-const CDN_CACHE    = 'recall-cdn-v1';
+const STATIC_CACHE = 'recall-static-v2';
+const DATA_CACHE   = 'recall-data-v2';
+const CDN_CACHE    = 'recall-cdn-v2';
 const ALL_CACHES   = [STATIC_CACHE, DATA_CACHE, CDN_CACHE];
 
 const CDN_HOSTS = ['code.jquery.com', 'cdn.datatables.net', 'fonts.googleapis.com', 'fonts.gstatic.com'];
