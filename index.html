@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>台灣藥品回收監測看板</title>
+    <meta name="theme-color" content="#dc2626">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="藥品回收">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
     
@@ -146,6 +152,40 @@
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
+        /* ─── PWA Banners ─── */
+        .pwa-banner {
+            display: none; padding: 0.55rem 1.5rem;
+            font-size: 0.82rem; align-items: center;
+            justify-content: center; gap: 0.875rem; flex-wrap: wrap;
+            text-align: center; line-height: 1.5;
+        }
+        /* 離線 banner：比一般 app 更顯眼，因為快取回收資料有安全疑慮 */
+        #offlineBanner {
+            background: #fef2f2;
+            border-bottom: 2px solid #fca5a5;
+            color: #991b1b;
+            font-weight: 500;
+        }
+        #updateBanner {
+            background: var(--blue-soft);
+            border-bottom: 1px solid var(--blue-border);
+            color: #1e40af;
+        }
+        #installBanner {
+            background: #f0fdf4;
+            border-bottom: 1px solid #bbf7d0;
+            color: #166534;
+        }
+        .pwa-action-btn {
+            padding: 0.3rem 0.75rem; border: none; border-radius: 4px;
+            font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: var(--sans);
+        }
+        .pwa-reload-btn  { background: var(--blue); color: white; }
+        .pwa-reload-btn:hover { background: #1d4ed8; }
+        .pwa-install-btn { background: var(--green); color: white; }
+        .pwa-install-btn:hover { background: #15803d; }
+        .pwa-dismiss-btn { background: none; color: inherit; opacity: 0.55; padding: 0.2rem 0.4rem; font-size: 0.95rem; }
+
         /* ─── 頁尾警語樣式 ─── */
         .site-footer { text-align: center; padding: 0 28px 40px; color: var(--text-dim); font-size: 12px; line-height: 1.6; }
         .site-footer a { color: var(--blue); text-decoration: none; font-weight: 500; transition: color 0.15s; }
@@ -183,6 +223,25 @@
     </style>
 </head>
 <body>
+
+<!-- PWA：離線模式（回收資料有患者安全意涵，警示需顯眼） -->
+<div id="offlineBanner" class="pwa-banner" role="alert">
+    ⚠ 離線模式 · 目前顯示快取資料，非最新公告。回收相關盤點決策請上線後確認最新資訊。
+</div>
+
+<!-- PWA：新版本通知 -->
+<div id="updateBanner" class="pwa-banner" role="status">
+    <span>🔄 看板已更新（可能含最新回收公告），建議重新載入</span>
+    <button class="pwa-action-btn pwa-reload-btn" id="reloadBtn">立即更新</button>
+    <button class="pwa-action-btn pwa-dismiss-btn" id="dismissUpdateBtn" aria-label="關閉">✕</button>
+</div>
+
+<!-- PWA：安裝提示 -->
+<div id="installBanner" class="pwa-banner" role="complementary">
+    <span>📲 可安裝至主畫面，查房時快速確認最新回收公告</span>
+    <button class="pwa-action-btn pwa-install-btn" id="installBtn">安裝 App</button>
+    <button class="pwa-action-btn pwa-dismiss-btn" id="dismissInstallBtn" aria-label="關閉">✕</button>
+</div>
 
 <nav class="top-nav">
     <div class="nav-inner">
@@ -449,6 +508,83 @@ fetch('data/data.json?t=' + new Date().getTime())
             `<tr><td colspan="5" style="text-align:center;padding:48px;color:var(--text-dim);font-size:13px;">
                 ⚠ 資料載入失敗，請確認 data/data.json 路徑正確</td></tr>`;
     });
+
+// ── PWA：Service Worker ─────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').then(reg => {
+        // 偵測新版 SW（每日資料更新後部署觸發）
+        reg.addEventListener('updatefound', () => {
+            const incoming = reg.installing;
+            incoming.addEventListener('statechange', () => {
+                if (incoming.state === 'installed' && navigator.serviceWorker.controller) {
+                    document.getElementById('updateBanner').style.display = 'flex';
+                }
+            });
+        });
+    }).catch(err => console.warn('SW 註冊失敗:', err));
+
+    // 離線模式通知：SW 無法取得最新資料時發送
+    navigator.serviceWorker.addEventListener('message', e => {
+        if (e.data?.type === 'OFFLINE_MODE') {
+            document.getElementById('offlineBanner').style.display = 'flex';
+            // 將 LIVE 標籤改為 CACHE，提醒使用者非即時資料
+            const liveTag = document.querySelector('.live-tag');
+            if (liveTag) {
+                liveTag.textContent = 'CACHE';
+                liveTag.style.background = 'var(--amber-soft)';
+                liveTag.style.color = 'var(--amber)';
+                liveTag.style.borderColor = 'var(--amber-border)';
+            }
+        }
+    });
+}
+
+// ── PWA：離線 / 上線狀態即時偵測 ───────────────────────────────
+window.addEventListener('offline', () => {
+    document.getElementById('offlineBanner').style.display = 'flex';
+});
+window.addEventListener('online', () => {
+    document.getElementById('offlineBanner').style.display = 'none';
+    const liveTag = document.querySelector('.live-tag');
+    if (liveTag && liveTag.textContent === 'CACHE') {
+        liveTag.textContent = 'LIVE';
+        liveTag.style.background = '';
+        liveTag.style.color = '';
+        liveTag.style.borderColor = '';
+    }
+});
+
+// ── PWA：版本更新 banner ────────────────────────────────────────
+document.getElementById('reloadBtn').addEventListener('click', () => window.location.reload());
+document.getElementById('dismissUpdateBtn').addEventListener('click', () => {
+    document.getElementById('updateBanner').style.display = 'none';
+});
+
+// ── PWA：安裝 banner ────────────────────────────────────────────
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    document.getElementById('installBanner').style.display = 'flex';
+});
+
+document.getElementById('installBtn').addEventListener('click', () => {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    deferredInstallPrompt.userChoice.then(() => {
+        deferredInstallPrompt = null;
+        document.getElementById('installBanner').style.display = 'none';
+    });
+});
+
+document.getElementById('dismissInstallBtn').addEventListener('click', () => {
+    document.getElementById('installBanner').style.display = 'none';
+});
+
+window.addEventListener('appinstalled', () => {
+    document.getElementById('installBanner').style.display = 'none';
+    deferredInstallPrompt = null;
+});
 </script>
 </body>
 </html>
