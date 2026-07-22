@@ -65,9 +65,11 @@
         .stat-pill .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
         .stat-pill.red   { background: var(--red-soft);   color: var(--red);   border-color: var(--red-border); }
         .stat-pill.amber { background: var(--amber-soft);  color: var(--amber); border-color: var(--amber-border); }
+        .stat-pill.blue  { background: var(--blue-soft);   color: var(--blue);  border-color: var(--blue-border); }
         .stat-pill.green { background: var(--green-soft);  color: var(--green); border-color: var(--green-border); }
         .stat-pill.red   .dot { background: var(--red); }
         .stat-pill.amber .dot { background: var(--amber); animation: pulse 2s infinite; }
+        .stat-pill.blue  .dot { background: var(--blue); }
         .stat-pill.green .dot { background: var(--green); }
         @keyframes pulse { 0%, 100% { opacity:1; transform:scale(1); } 50% { opacity:.5; transform:scale(.8); } }
         
@@ -141,6 +143,8 @@
         .badge-grade { display: inline-flex; align-items: center; font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: 0.05em; padding: 3px 9px; border-radius: 100px; white-space: nowrap; border: 1px solid; }
         .badge-danger  { background: var(--red-soft);   color: var(--red);   border-color: var(--red-border); }
         .badge-warning { background: var(--amber-soft);  color: var(--amber); border-color: var(--amber-border); }
+        .badge-info    { background: var(--blue-soft);   color: var(--blue);  border-color: var(--blue-border); }
+        .badge-muted   { background: var(--surface2);    color: var(--text-dim); border-color: var(--border); }
 
         .dataTables_paginate { margin-top: 15px; text-align: center; }
         .paginate_button { color: var(--text-dim) !important; border: 1px solid var(--border) !important; border-radius: 6px !important; padding: 4px 10px !important; margin: 0 2px !important; font-size: 12.5px; background: var(--surface) !important; cursor: pointer; }
@@ -257,6 +261,7 @@
         <div class="nav-stats">
             <div class="stat-pill red"><span class="dot"></span><span id="pill-class1">—</span> 第一級</div>
             <div class="stat-pill amber"><span class="dot"></span><span id="pill-class2">—</span> 第二級</div>
+            <div class="stat-pill blue"><span class="dot"></span><span id="pill-class3">—</span> 第三級</div>
             <div class="stat-pill green"><span class="dot"></span><span id="pill-total">—</span> 總回收數</div>
         </div>
         <div class="nav-search">
@@ -350,6 +355,45 @@
 <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
 
 <script>
+// ── 分級正規化（純函式）─────────────────────────────────────────────
+// TFDA 原始「回收分級」格式雜亂：'第二級'、'2'、'第2級'、尾端空白、null、
+// '疑似第一級'、'-' 等皆存在。統一映射為確定等級，未知/疑似不默認第二級，
+// 改標「未確認」並排除於確定分級 KPI。原始值以 title 保留供追溯。
+// 回傳：{ level: 1|2|3|null, label: '第一級'|'第二級'|'第三級'|'未確認', badge, raw }
+function normalizeGrade(raw) {
+    const s = (raw == null ? '' : String(raw)).trim();
+    if (s === '') return { level: null, label: '未確認', badge: 'badge-muted', raw };
+    // 「疑似」不列入確定分級，避免嚴重度被高估或低估
+    if (s.includes('疑似')) return { level: null, label: '未確認', badge: 'badge-muted', raw };
+    if (s.includes('一') || s.includes('1')) return { level: 1, label: '第一級', badge: 'badge-danger', raw };
+    if (s.includes('二') || s.includes('2')) return { level: 2, label: '第二級', badge: 'badge-warning', raw };
+    if (s.includes('三') || s.includes('3')) return { level: 3, label: '第三級', badge: 'badge-info', raw };
+    return { level: null, label: '未確認', badge: 'badge-muted', raw };
+}
+
+// 屬性值最小跳脫（供 title 帶入原始分級值，避免屬性注入）
+function escAttr(v) {
+    return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// TG-03：?selftest=1 時以 console.assert 驗證 normalizeGrade（無需測試框架）
+if (new URLSearchParams(location.search).get('selftest') === '1') {
+    const t = (raw, level, label) => {
+        const g = normalizeGrade(raw);
+        console.assert(g.level === level && g.label === label,
+            'normalizeGrade 失敗:', JSON.stringify(raw), '→', g);
+    };
+    t('第一級', 1, '第一級'); t('1', 1, '第一級');
+    t('第二級', 2, '第二級'); t('第二級 ', 2, '第二級'); t('2', 2, '第二級');
+    t('2 ', 2, '第二級'); t('二', 2, '第二級'); t('第2級', 2, '第二級');
+    t('第三級', 3, '第三級'); t('3', 3, '第三級'); t('3 ', 3, '第三級');
+    t('疑似第一級', null, '未確認'); t(null, null, '未確認');
+    t('', null, '未確認'); t('-', null, '未確認');
+    console.log('[selftest] normalizeGrade 測例執行完畢');
+}
+
 // 加入時間戳參數 (Cache-Busting) 強制瀏覽器抓取最新檔案
 fetch('data/data.json?t=' + new Date().getTime())
     .then(r => {
@@ -364,14 +408,16 @@ fetch('data/data.json?t=' + new Date().getTime())
     })
     .then(data => {
         // ... (下方原有的 let class1 = 0, class2 = 0; 等邏輯維持不變)
-        let class1 = 0, class2 = 0;
+        let class1 = 0, class2 = 0, class3 = 0;
         const yearsSet = new Set();
 
-        // 統計運算與提取年份
+        // 統計運算與提取年份（依正規化等級計數，未確認不計入任一確定級別）
         data.forEach(item => {
-            const grade = item.回收分級 || '';
-            if (grade.includes('一')) class1++; else class2++;
-            
+            const level = normalizeGrade(item.回收分級).level;
+            if (level === 1) class1++;
+            else if (level === 2) class2++;
+            else if (level === 3) class3++;
+
             const dateStr = item.日期 || '';
             if (dateStr) {
                 const year = dateStr.split('/')[0];
@@ -389,6 +435,7 @@ fetch('data/data.json?t=' + new Date().getTime())
         document.getElementById('pill-total').textContent = data.length;
         document.getElementById('pill-class1').textContent = class1;
         document.getElementById('pill-class2').textContent = class2;
+        document.getElementById('pill-class3').textContent = class3;
         // 【此處的 totalBadge 賦值程式碼已刪除】
         
         // 動態更新「狀態：全部」的總數顯示
@@ -397,15 +444,14 @@ fetch('data/data.json?t=' + new Date().getTime())
         // 構建表格 HTML
         let rows = '';
         data.forEach(item => {
-            const grade = item.回收分級 || '';
-            const isOne = grade.includes('一');
+            const g = normalizeGrade(item.回收分級);
             const licenseNo = item.許可證字號 || '未註明字號';
             const holder = item.許可證持有者 || '未知藥廠';
             const batchNo = item.批號 || '未註明批號';
 
             rows += `<tr>
                 <td class="date-cell">${item.日期 || ''}</td>
-                <td><span class="badge-grade ${isOne ? 'badge-danger' : 'badge-warning'}">${grade}</span></td>
+                <td><span class="badge-grade ${g.badge}" title="原始分級值：${escAttr(g.raw)}">${g.label}</span></td>
                 <td>
                     <span class="product-name">${item.產品 || ''}</span>
                     <span class="meta-text">${holder} | ${licenseNo}</span>
