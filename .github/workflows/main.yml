@@ -20,6 +20,6 @@ jobs:
         run: |
           git config --global user.name "GitHub Action"
           git config --global user.email "action@github.com"
-          git add data/data.json
+          git add data/data.json data/status.json
           git commit -m "Auto-update recall data [skip ci]" || exit 0
           git push
