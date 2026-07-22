@@ -371,12 +371,27 @@ function normalizeGrade(raw) {
     return { level: null, label: '未確認', badge: 'badge-muted', raw };
 }
 
-// 屬性值最小跳脫（供 title 帶入原始分級值，避免屬性注入）
-function escAttr(v) {
+// HTML 跳脫（同時涵蓋文字內容與屬性值，避免上游被污染資料經 innerHTML 注入 — CR-10）
+function escHtml(v) {
     return String(v == null ? '' : v)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
+const escAttr = escHtml; // 語意別名：屬性值跳脫
+
+// 取資料集中最新公告日期（YYYY/MM/DD 字串比較即可，格式為零填補故可字典序）；無回 ''
+function maxAnnouncementDate(data) {
+    let max = '';
+    for (const item of data) {
+        const d = (item && item.日期) || '';
+        if (/^\d{4}\/\d{2}\/\d{2}$/.test(d) && d > max) max = d;
+    }
+    return max;
+}
+
+// 目前已載入資料的簽章（筆數+最新公告日期），供前景更新偵測比對（CR-08）
+let loadedSignature = null;
+let deployLastModified = null;
 
 // TG-03：?selftest=1 時以 console.assert 驗證 normalizeGrade（無需測試框架）
 if (new URLSearchParams(location.search).get('selftest') === '1') {
@@ -395,18 +410,28 @@ if (new URLSearchParams(location.search).get('selftest') === '1') {
 }
 
 // 加入時間戳參數 (Cache-Busting) 強制瀏覽器抓取最新檔案
-fetch('data/data.json?t=' + new Date().getTime())
+fetch('data/data.json?t=' + new Date().getTime(), { cache: 'no-store' })
     .then(r => {
-        // 擷取 GitHub 伺服器回傳的檔案最後修改時間
-        const lastMod = r.headers.get('Last-Modified');
-        const updateText = lastMod 
-            ? new Date(lastMod).toLocaleString('zh-TW', { hour12: false }) 
-            : '系統最新排程';
-        document.getElementById('updateTime').textContent = `(資料更新時間：${updateText})`;
-        
+        // CR-11：先驗證 HTTP 狀態，未成功（含 SW 回傳的 503）即拋錯進 .catch，
+        // 不在資料未確認前搶先標示「已更新」。保留檔案部署時間供後續標示。
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        deployLastModified = r.headers.get('Last-Modified');
         return r.json();
     })
     .then(data => {
+        // CR-11：根節點必須是陣列，否則視為資料損壞
+        if (!Array.isArray(data)) throw new Error('資料格式非陣列');
+
+        // CR-05：區分「最新公告日期」(來自資料內容，真正的新鮮度) 與
+        // 「檔案部署時間」(HTTP Last-Modified，僅代表檔案何時被部署)
+        const latestDate = maxAnnouncementDate(data);
+        const deployText = deployLastModified
+            ? new Date(deployLastModified).toLocaleString('zh-TW', { hour12: false })
+            : '未知';
+        document.getElementById('updateTime').textContent =
+            `(最新公告 ${latestDate || '未知'} · 檔案部署 ${deployText})`;
+        loadedSignature = data.length + '|' + latestDate;
+
         // ... (下方原有的 let class1 = 0, class2 = 0; 等邏輯維持不變)
         let class1 = 0, class2 = 0, class3 = 0;
         const yearsSet = new Set();
@@ -445,19 +470,23 @@ fetch('data/data.json?t=' + new Date().getTime())
         let rows = '';
         data.forEach(item => {
             const g = normalizeGrade(item.回收分級);
-            const licenseNo = item.許可證字號 || '未註明字號';
-            const holder = item.許可證持有者 || '未知藥廠';
-            const batchNo = item.批號 || '未註明批號';
+            // CR-10：所有上游欄位一律 escHtml，防止被污染資料經 innerHTML 執行 script／偽造分級
+            const licenseNo = escHtml(item.許可證字號 || '未註明字號');
+            const holder = escHtml(item.許可證持有者 || '未知藥廠');
+            const batchNo = escHtml(item.批號 || '未註明批號');
+            const dateStr = escHtml(item.日期 || '');
+            const product = escHtml(item.產品 || '');
+            const reason = escHtml(item.原因 || '');
 
             rows += `<tr>
-                <td class="date-cell">${item.日期 || ''}</td>
+                <td class="date-cell">${dateStr}</td>
                 <td><span class="badge-grade ${g.badge}" title="原始分級值：${escAttr(g.raw)}">${g.label}</span></td>
                 <td>
-                    <span class="product-name">${item.產品 || ''}</span>
+                    <span class="product-name">${product}</span>
                     <span class="meta-text">${holder} | ${licenseNo}</span>
                 </td>
                 <td class="batch-cell">${batchNo}</td>
-                <td><span class="reason-text">${item.原因 || ''}</span></td>
+                <td><span class="reason-text">${reason}</span></td>
             </tr>`;
         });
         document.getElementById('tableBody').innerHTML = rows;
@@ -551,15 +580,27 @@ fetch('data/data.json?t=' + new Date().getTime())
     })
     .catch(err => {
         console.error('資料載入失敗:', err);
+        // CR-06/CR-11：載入或驗證失敗（含離線且無快取時 SW 回傳的 503）→ 明確阻斷式錯誤，
+        // 不呈現任何可能被誤讀為「目前無回收品項」的成功狀態
+        const liveTag = document.querySelector('.live-tag');
+        if (liveTag) {
+            liveTag.textContent = 'ERROR';
+            liveTag.style.background = 'var(--red-soft)';
+            liveTag.style.color = 'var(--red)';
+            liveTag.style.borderColor = 'var(--red-border)';
+        }
+        document.getElementById('updateTime').textContent = '(資料無法載入)';
         document.getElementById('tableBody').innerHTML =
-            `<tr><td colspan="5" style="text-align:center;padding:48px;color:var(--text-dim);font-size:13px;">
-                ⚠ 資料載入失敗，請確認 data/data.json 路徑正確</td></tr>`;
+            `<tr><td colspan="5" style="text-align:center;padding:48px;color:var(--red);font-size:13px;line-height:1.6;">
+                ⚠ 無法取得回收資料（可能離線且無本機快取）。<br>
+                此為載入失敗，<strong>並非「目前無回收品項」</strong>；請恢復連線後重試，切勿據此做盤點決策。</td></tr>`;
     });
 
 // ── PWA：Service Worker ─────────────────────────────────────────
 if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').then(reg => {
-        // 偵測新版 SW（每日資料更新後部署觸發）
+        // 注意：updatefound 僅在 sw.js「本身內容」變更時觸發；單獨更新 data/data.json
+        // 不會安裝新 SW。資料更新的偵測改由下方 checkForDataUpdate() 前景比對處理（CR-08）。
         reg.addEventListener('updatefound', () => {
             const incoming = reg.installing;
             incoming.addEventListener('statechange', () => {
@@ -590,16 +631,39 @@ if ('serviceWorker' in navigator) {
 window.addEventListener('offline', () => {
     document.getElementById('offlineBanner').style.display = 'flex';
 });
-window.addEventListener('online', () => {
-    document.getElementById('offlineBanner').style.display = 'none';
-    const liveTag = document.querySelector('.live-tag');
-    if (liveTag && liveTag.textContent === 'CACHE') {
-        liveTag.textContent = 'LIVE';
-        liveTag.style.background = '';
-        liveTag.style.color = '';
-        liveTag.style.borderColor = '';
+// CR-07：'online' 只代表偵測到網路，不代表 data.json 已成功更新。
+// 必須實際重抓並驗證成功，才重新載入以完整重繪；失敗則保留離線警示。
+window.addEventListener('online', async () => {
+    try {
+        const r = await fetch('data/data.json?t=' + Date.now(), { cache: 'no-store' });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        if (!Array.isArray(d)) throw new Error('資料格式非陣列');
+        // 確認能取得有效最新資料 → 重新載入（避免就地重繪造成 DataTables/過濾器重複註冊）
+        location.reload();
+    } catch (e) {
+        console.warn('上線後重抓失敗，維持快取警示:', e);
     }
 });
+
+// ── CR-08：前景資料更新偵測 ──────────────────────────────────────
+// 不依賴 SW lifecycle。頁面重新可見或定時重抓 data.json，比對簽章（筆數+最新公告日期），
+// 有變化即顯示更新 banner，讓長時間開啟的看板也能得知新公告。
+async function checkForDataUpdate() {
+    if (document.hidden || !loadedSignature) return;
+    try {
+        const r = await fetch('data/data.json?t=' + Date.now(), { cache: 'no-store' });
+        if (!r.ok) return;
+        const d = await r.json();
+        if (!Array.isArray(d)) return;
+        const sig = d.length + '|' + maxAnnouncementDate(d);
+        if (sig !== loadedSignature) {
+            document.getElementById('updateBanner').style.display = 'flex';
+        }
+    } catch { /* 靜默，下次再試 */ }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForDataUpdate(); });
+setInterval(checkForDataUpdate, 30 * 60 * 1000); // 每 30 分鐘
 
 // ── PWA：版本更新 banner ────────────────────────────────────────
 document.getElementById('reloadBtn').addEventListener('click', () => window.location.reload());
