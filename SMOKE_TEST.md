@@ -21,7 +21,8 @@
 ## 離線行為（CR-06）
 - [ ] 首次造訪即離線（Clear site data 後切 Offline 重載）→ 顯示阻斷式錯誤，**非**空表格假裝成功
 - [ ] 已有快取後離線（先線上載入一次 → 切 Offline 重載）→ 顯示快取資料 + 紅色離線 banner，`LIVE` 變 `CACHE`
-- [ ] Application → Cache Storage 僅存在 `recall-*-v3`，無殘留舊版（CR-12：切換版本後其他 origin 專案 cache 不受影響）
+- [ ] Application → Cache Storage 僅存在 `recall-*-v4`，無殘留舊版（CR-12：切換版本後其他 origin 專案 cache 不受影響）
+- [ ] DevTools Network 確認 jQuery/DataTables 以新版本載入且**無 SRI integrity 錯誤**（Console 無 "Failed to find a valid digest"）
 
 ## 上線恢復（CR-07）
 - [ ] 處於離線/CACHE 狀態 → 切回 Online：若 `data.json` 可取得，頁面**自動重新載入**並回到 `LIVE`
