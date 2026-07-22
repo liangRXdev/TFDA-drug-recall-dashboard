@@ -1,4 +1,4 @@
-const VERSION      = 'v3';
+const VERSION      = 'v4';  // v4：CDN 升級 jQuery 3.7.1 / DataTables 1.13.8 並加 SRI，清舊版 CDN 快取
 const STATIC_CACHE = 'recall-static-' + VERSION;
 const DATA_CACHE   = 'recall-data-'   + VERSION;
 const CDN_CACHE    = 'recall-cdn-'    + VERSION;

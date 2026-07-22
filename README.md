@@ -13,7 +13,7 @@
 * **資料管線 (Data Pipeline)**: Python (Requests) + GitHub Actions (Cron Job 定時觸發)
 * **資料庫 (Database)**: 本地靜態 JSON (`data/data.json`)
 * **網頁前端 (Frontend)**: HTML5, CSS3 (CSS Variables), JavaScript (ES6)
-* **前端套件 (Libraries)**: jQuery 3.7.0, DataTables 1.13.6
+* **前端套件 (Libraries)**: jQuery 3.7.1, DataTables 1.13.8（CDN 引用皆附 SHA-384 SRI；授權見 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)）
 * **雲端託管 (Hosting)**: GitHub Pages
 
 ### 2. 核心功能規格
