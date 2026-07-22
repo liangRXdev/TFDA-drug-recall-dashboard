@@ -1,0 +1,20 @@
+{
+  "fetched_at": "2026-07-22T21:04:15+00:00",
+  "record_count": 1710,
+  "latest_announcement": "2026-06-29",
+  "source": "政府資料開放平臺 - 藥品回收資料集 (dataset 6947)",
+  "url": "https://data.fda.gov.tw/data/opendata/export/34/json",
+  "grade_distribution": {
+    "第二級": 774,
+    "2": 708,
+    "None": 153,
+    "第一級": 3,
+    "1": 53,
+    "3": 11,
+    "-": 1,
+    "第三級": 2,
+    "二": 2,
+    "疑似第一級": 1,
+    "第2級": 2
+  }
+}
