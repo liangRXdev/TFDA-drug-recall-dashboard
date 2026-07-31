@@ -2,7 +2,9 @@
 
 台灣西藥回收監測看板。零建置靜態站（GitHub Pages）+ Python scraper + GitHub Actions 每日排程。
 
-**這個 repo 的多數設計是「刻意不做某件事」**，2026-07-22 經完整審查後定案（稽核紀錄在本機未追蹤的 `.ai-review/`）。下面每條都寫了理由——看起來像疏漏的地方，先讀理由再動。
+**這個 repo 的多數設計是「刻意不做某件事」**，2026-07-22 經完整審查後定案。下面每條都寫了理由——看起來像疏漏的地方，先讀理由再動。
+
+完整來由在 `.ai-review/`：`codex-review.md`（原始審查報告）與 `verdict.md`（25 項逐項裁決，含 4 項「部分接受」的降級理由）。要推翻本檔任何一條決策前，先讀那兩份。
 
 > ⚠️ 與 `TFDA-drug-recall-alert` 是**不同 repo**。那個跑在 GAS 上、會被 .gov.tw 擋 Google IP；本 repo 由 GitHub Actions runner 直抓 `data.fda.gov.tw`，TLS 正常，不要把那邊的 workaround 搬過來。
 
