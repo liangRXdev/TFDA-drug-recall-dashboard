@@ -10,7 +10,7 @@
 - 每輪測試前如需乾淨狀態：Application → Storage → **Clear site data**
 
 ## 分級正規化（B 群組回歸）
-- [ ] `?selftest=1` 開啟頁面，Console 出現「normalizeGrade 測例執行完畢」且**無** Assertion 失敗
+- [ ] `?selftest=1` 開啟頁面，Console 出現「normalizeGrade 測例執行完畢」**與**「supplementKey / mergeSupplement / supplementBadge 測例執行完畢」，且**無** Assertion 失敗、無 `ReferenceError`
 - [ ] 導覽列四個 pill 數字加總邏輯正確（第一/二/三級為總數之子集，未確認不計入任一級）
 
 ## 資料載入與驗證（CR-11 / CR-05）
@@ -21,8 +21,20 @@
 ## 離線行為（CR-06）
 - [ ] 首次造訪即離線（Clear site data 後切 Offline 重載）→ 顯示阻斷式錯誤，**非**空表格假裝成功
 - [ ] 已有快取後離線（先線上載入一次 → 切 Offline 重載）→ 顯示快取資料 + 紅色離線 banner，`LIVE` 變 `CACHE`
-- [ ] Application → Cache Storage 僅存在 `recall-*-v4`，無殘留舊版（CR-12：切換版本後其他 origin 專案 cache 不受影響）
+- [ ] Application → Cache Storage 僅存在 `recall-*-v5`，無殘留舊版（CR-12：切換版本後其他 origin 專案 cache 不受影響）
 - [ ] DevTools Network 確認 jQuery/DataTables 以新版本載入且**無 SRI integrity 錯誤**（Console 無 "Failed to find a valid digest"）
+
+## 公告頁補抓合併（SUP）
+> 上游 opendata 停更期間才有意義；`supplement.json` 的 `records` 歸零後本節可略過。
+
+- [ ] 正常載入：琥珀色橫幅說明「表中 N 筆較新公告由官方公告頁補抓」，表格最上方 N 列帶「公告頁補抓」徽章
+- [ ] 導覽列總筆數 = `data.json` 筆數 + 補抓筆數；分級 pill 亦已計入補抓筆
+- [ ] 徽章連結指向 `consumer.fda.gov.tw/GMP/ProductDetail.aspx?...`，於新分頁開啟
+- [ ] **補抓檔缺失**：暫時移走 `data/supplement.json` 重載 → **紅色**警示「無法載入公告頁補抓資料…切勿據此判定『無新回收』」，且**主資料仍正常渲染**（不得因補抓失敗而阻斷）
+- [ ] **補抓檔過期**：把 `generated_at` 改成 8 天前 → 紅色警示「已 N 天未更新」
+- [ ] **`generated_at` 損壞**：改成非日期字串 → 一樣顯示紅色警示（fail-closed，不可靜默放行）
+- [ ] **無缺口**：把 `records` 改成 `[]` 且 `generated_at` 為今日 → 橫幅**不顯示**（不打擾）
+- [ ] 補抓筆與 opendata 同一則公告不得重複出現（改 `data.json` 令其含補抓筆，重載後總數不變）
 
 ## 上線恢復（CR-07）
 - [ ] 處於離線/CACHE 狀態 → 切回 Online：若 `data.json` 可取得，頁面**自動重新載入**並回到 `LIVE`

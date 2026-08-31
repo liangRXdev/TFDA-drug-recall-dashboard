@@ -12,6 +12,7 @@
 ### 1. 技術堆疊 (Tech Stack)
 * **資料管線 (Data Pipeline)**: Python (Requests) + GitHub Actions (Cron Job 定時觸發)；啟用 TLS 驗證、抓取後做結構／語意差異驗證，通過才以 `os.replace()` 原子覆寫，失敗即中斷並保留舊檔
 * **資料庫 (Database)**: 本地靜態 JSON (`data/data.json`)，另產生 `data/status.json` 記錄抓取時間、筆數、最新公告日期（heartbeat）
+* **公告頁補抓 (Supplement)**: 上游開放資料自 2026/06/29 起停更，另以 `supplement_scraper.py` 自官方公告頁補抓缺口寫入 `data/supplement.json`，由前端合併（開放資料版本優先）。該站封鎖境外 IP，故此步驟在本機排程執行而非 CI——細節見 `CLAUDE.md`
 * **網頁前端 (Frontend)**: HTML5, CSS3 (CSS Variables), JavaScript (ES6)
 * **前端套件 (Libraries)**: jQuery 3.7.1, DataTables 1.13.8（CDN 引用皆附 SHA-384 SRI；授權見 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)）
 * **雲端託管 (Hosting)**: GitHub Pages
@@ -50,4 +51,4 @@
 3.  **觸發首次更新**: 進入 `Actions` 頁籤，手動觸發 `Update Data` 工作流，系統將會建立 `data/data.json` 檔案。
 4.  **啟用 GitHub Pages**: 進入 `Settings` > `Pages`，將 Source 指向 `main` 分支的 `/(root)` 並儲存。數分鐘後即可取得專屬的 Live Demo 網址。
 
-> **資料來源聲明**：本看板資料皆即時介接自 [政府資料開放平臺 - 藥品回收資料集](https://data.gov.tw/dataset/6947)，實際回收品項與處置進度應以衛福部食藥署官方公告為準。
+> **資料來源聲明**：本看板資料主要介接自 [政府資料開放平臺 - 藥品回收資料集](https://data.gov.tw/dataset/6947)；該資料集停更期間的缺口另自 [食藥署回收專區公告頁](https://consumer.fda.gov.tw/GMP/Product.aspx?nodeID=420) 補抓並於表中標示「公告頁補抓」。實際回收品項與處置進度應以衛福部食藥署官方公告為準。
