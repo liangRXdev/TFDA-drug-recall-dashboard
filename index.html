@@ -139,6 +139,16 @@
 
         .date-cell { font-family: var(--mono); font-size: 12px; color: var(--text-dim); white-space: nowrap; }
         .product-name { font-weight: 600; color: var(--text); display: block; }
+        /* SUP：來源徽章，僅出現在 opendata 尚未收錄、由公告頁補抓的列 */
+        .badge-src {
+            display: inline-flex; align-items: center; font-family: var(--mono);
+            font-size: 10px; font-weight: 500; letter-spacing: 0.05em;
+            padding: 2px 7px; border-radius: 100px; white-space: nowrap;
+            background: var(--amber-soft); color: var(--amber);
+            border: 1px solid var(--amber-border); text-decoration: none;
+            margin-left: 6px; vertical-align: middle;
+        }
+        a.badge-src:hover { background: var(--amber); color: #fff; }
         .meta-text { display: block; font-family: var(--mono); font-size: 11.5px; color: var(--text-muted); margin-top: 4px; }
         .batch-cell { font-family: var(--mono); font-size: 12px; color: var(--text); word-break: break-all; white-space: normal !important; min-width: 120px; line-height: 1.4; }
         .reason-text { font-size: 12.5px; color: var(--text-dim); line-height: 1.5; }
@@ -184,6 +194,20 @@
             border-bottom: 1px solid #bbf7d0;
             color: #166534;
         }
+        /* SUP：補抓狀態橫幅。兩級嚴重度——amber 為「已補上但上游落後」，
+           red 為「補抓資料本身過期或載入失敗」（後者代表看板可能有缺口）。 */
+        #supplementBanner.sup-info {
+            background: var(--amber-soft);
+            border-bottom: 1px solid var(--amber-border);
+            color: #92400e;
+        }
+        #supplementBanner.sup-warn {
+            background: #fef2f2;
+            border-bottom: 2px solid #fca5a5;
+            color: #991b1b;
+            font-weight: 500;
+        }
+        #supplementBanner a { color: inherit; font-weight: 600; text-decoration: underline; }
         .pwa-action-btn {
             padding: 0.3rem 0.75rem; border: none; border-radius: 4px;
             font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: var(--sans);
@@ -250,6 +274,9 @@
     <button class="pwa-action-btn pwa-install-btn" id="installBtn">安裝 App</button>
     <button class="pwa-action-btn pwa-dismiss-btn" id="dismissInstallBtn" aria-label="關閉">✕</button>
 </div>
+
+<!-- SUP：補抓狀態（內容由 renderSupplementBanner() 依載入結果填入） -->
+<div id="supplementBanner" class="pwa-banner" role="status"></div>
 
 <nav class="top-nav">
     <div class="nav-inner">
@@ -413,18 +440,157 @@ if (new URLSearchParams(location.search).get('selftest') === '1') {
     console.log('[selftest] normalizeGrade 測例執行完畢');
 }
 
-// 加入時間戳參數 (Cache-Busting) 強制瀏覽器抓取最新檔案
-fetch('data/data.json?t=' + new Date().getTime(), { cache: 'no-store' })
-    .then(r => {
-        // CR-11：先驗證 HTTP 狀態，未成功（含 SW 回傳的 503）即拋錯進 .catch，
-        // 不在資料未確認前搶先標示「已更新」。保留檔案部署時間供後續標示。
+// ── SUP：公告頁補抓資料（data/supplement.json）───────────────────────
+// 上游 opendata（dataset 34）自 2026/06/29 起停更，官方公告頁仍持續發布。
+// 補抓檔由本機 supplement_scraper.py 產生（該站封鎖境外 IP，CI 抓不到，
+// 詳見該檔開頭的實測紀錄）。合併規則：opendata 為準，補抓只補其未收錄者。
+const SUPPLEMENT_URL = 'data/supplement.json';
+const SUPPLEMENT_STALE_DAYS = 7;   // 超過此天數未更新 → 視為過期，升為紅色警示
+const SUPPLEMENT_LIST_URL = 'https://consumer.fda.gov.tw/GMP/Product.aspx?nodeID=420';
+const SUPPLEMENT_LINK_PREFIX = 'https://consumer.fda.gov.tw/GMP/ProductDetail.aspx?nodeID=420&id=';
+
+// 去重鍵：文號 + 產品（去除所有空白）。與 supplement_scraper.py 的 merge_key 同義；
+// 兩邊若要改必須一起改，否則同一則公告會重複出現。
+function supplementKey(item) {
+    const norm = v => String(v == null ? '' : v).replace(/\s+/g, '');
+    return norm(item && item.文號) + '\u0000' + norm(item && item.產品);
+}
+
+// 合併：opendata 版本優先。前端再去重一次並非多餘——supplement.json 可能產生於
+// opendata 補上之前，此時同一則公告會兩邊都有。
+function mergeSupplement(opendata, supplement) {
+    if (!supplement || supplement.state !== 'ok' || !supplement.records.length) return opendata;
+    const known = new Set(opendata.map(supplementKey));
+    const extra = supplement.records.filter(r => r && !known.has(supplementKey(r)));
+    supplement.mergedCount = extra.length;
+    return extra.concat(opendata);
+}
+
+// 讀取補抓檔。**刻意永不 reject**：補抓是加值資料，其失敗不得阻斷主資料顯示；
+// 但失敗狀態必須傳達給橫幅，不可靜默——靜默失敗會讓看板看起來完整而實際有缺口。
+async function loadSupplement() {
+    try {
+        const r = await fetch(SUPPLEMENT_URL + '?t=' + Date.now(), { cache: 'no-store' });
+        if (r.status === 404) return { state: 'absent', records: [] };
         if (!r.ok) throw new Error('HTTP ' + r.status);
-        deployLastModified = r.headers.get('Last-Modified');
-        return r.json();
-    })
-    .then(data => {
+        const j = await r.json();
+        if (!j || !Array.isArray(j.records)) throw new Error('補抓資料格式異常');
+        const gen = j.generated_at ? new Date(j.generated_at) : null;
+        const valid = gen && !isNaN(gen.getTime());
+        return {
+            state: 'ok',
+            records: j.records,
+            generatedAt: valid ? gen : null,
+            ageDays: valid ? (Date.now() - gen.getTime()) / 86400000 : null,
+            opendataLatest: j.opendata_latest || null,
+        };
+    } catch (e) {
+        console.warn('補抓資料載入失敗:', e);
+        return { state: 'error', records: [], error: String((e && e.message) || e) };
+    }
+}
+
+// 來源徽章：只掛在補抓列。連結一律驗證前綴 + 字元集，不信任檔案內的 URL 欄位。
+function supplementBadge(item) {
+    if (!item || item._來源 !== '公告頁') return '';
+    const url = String(item._公告頁網址 || '');
+    const safe = url.indexOf(SUPPLEMENT_LINK_PREFIX) === 0 && /^[\w:/.?=&]+$/.test(url);
+    const title = '此筆尚未收錄於政府開放資料，由官方公告頁補抓';
+    return safe
+        ? ` <a class="badge-src" href="${escAttr(url)}" target="_blank" rel="noopener noreferrer" title="${escAttr(title)}：點擊查看官方公告">公告頁補抓</a>`
+        : ` <span class="badge-src" title="${escAttr(title)}">公告頁補抓</span>`;
+}
+
+function renderSupplementBanner(supplement, opendata) {
+    const el = document.getElementById('supplementBanner');
+    if (!el) return;
+    const link = `<a href="${SUPPLEMENT_LIST_URL}" target="_blank" rel="noopener noreferrer">官方公告頁</a>`;
+    const openLatest = escHtml(maxAnnouncementDate(opendata) || '未知');
+    let cls = '', msg = '';
+
+    if (!supplement || supplement.state !== 'ok') {
+        // 載入失敗／檔案不存在 → 看板可能只涵蓋 opendata，必須明講而非靜默
+        cls = 'sup-warn';
+        msg = `⚠ 無法載入公告頁補抓資料，本看板目前可能<strong>僅涵蓋政府開放資料</strong>`
+            + `（最新公告 ${openLatest}）。最新回收請逕至 ${link} 確認，切勿據此判定「無新回收」。`;
+    } else {
+        const age = supplement.ageDays;
+        // age 為 null 代表 generated_at 缺漏或無法解析 → 無從證明新鮮度，一律當過期。
+        // 這裡必須 fail-closed：判斷不了就示警，不可預設「應該還新」。
+        const stale = age == null || age > SUPPLEMENT_STALE_DAYS;
+        const n = supplement.mergedCount != null ? supplement.mergedCount : supplement.records.length;
+        if (stale) {
+            const staleText = age == null ? '更新時間不明' : `已 ${Math.floor(age)} 天未更新`;
+            cls = 'sup-warn';
+            msg = `⚠ 公告頁補抓資料<strong>${escHtml(staleText)}</strong>`
+                + `（政府開放資料最新僅至 ${openLatest}），期間若有新回收公告可能未收錄。`
+                + `請至 ${link} 確認。`;
+        } else if (n > 0) {
+            const freshText = age < 1 ? '今日' : `${Math.floor(age)} 天前`;
+            cls = 'sup-info';
+            msg = `政府開放資料最新僅至 ${openLatest}；表中 <strong>${n}</strong> 筆較新公告`
+                + `由 ${link} 補抓（標示「公告頁補抓」），補抓於 ${escHtml(freshText)}。`;
+        } else {
+            el.style.display = 'none';
+            el.className = 'pwa-banner';
+            el.innerHTML = '';
+            return;   // 開放資料已追上公告頁 → 無需打擾
+        }
+    }
+    el.className = 'pwa-banner ' + cls;
+    el.innerHTML = `<span>${msg}</span>`;
+    el.style.display = 'flex';
+}
+
+// SUP 測例：必須放在上述 const／函式宣告「之後」——這些是 const，提前引用會踩
+// 暫時性死區（TDZ），拋 ReferenceError 並中斷整個 script 區塊，連資料都載入不了。
+if (new URLSearchParams(location.search).get('selftest') === '1') {
+
+    // SUP：去重鍵與合併邏輯。合併錯誤會造成回收公告重複或漏列，兩者都是病安風險。
+    const k = supplementKey;
+    console.assert(k({ 文號: 'FDA-1', 產品: 'A 錠' }) === k({ 文號: 'FDA-1', 產品: 'A錠' }),
+        'supplementKey 應忽略空白差異');
+    console.assert(k({ 文號: 'FDA-1', 產品: 'A' }) !== k({ 文號: 'FDA-2', 產品: 'A' }),
+        'supplementKey 應區分不同文號');
+    console.assert(k({ 文號: 'AB', 產品: 'C' }) !== k({ 文號: 'A', 產品: 'BC' }),
+        'supplementKey 不可因串接而碰撞');
+
+    const openRec = { 文號: 'FDA-1', 產品: 'A 錠' };
+    const dupRec = { 文號: 'FDA-1', 產品: 'A錠', _來源: '公告頁' };
+    const newRec = { 文號: 'FDA-9', 產品: 'Z 錠', _來源: '公告頁' };
+    const m = (recs, state) => mergeSupplement([openRec], { state: state || 'ok', records: recs });
+    console.assert(m([dupRec]).length === 1, 'mergeSupplement 應濾掉已收錄於 opendata 的重複筆');
+    console.assert(m([newRec]).length === 2, 'mergeSupplement 應補入 opendata 未收錄的筆');
+    console.assert(m([newRec], 'error').length === 1, '補抓失敗時不得竄改 opendata');
+    console.assert(m([]).length === 1, '空補抓不改變資料');
+
+    console.assert(supplementBadge(openRec) === '', '非補抓列不得出現來源徽章');
+    console.assert(supplementBadge({ _來源: '公告頁', _公告頁網址: 'javascript:alert(1)' })
+        .indexOf('href') === -1, '非白名單前綴的連結不得產生 href');
+    console.assert(supplementBadge({ _來源: '公告頁', _公告頁網址: SUPPLEMENT_LINK_PREFIX + '1835' })
+        .indexOf('href') !== -1, '官方前綴連結應可點擊');
+    console.log('[selftest] supplementKey / mergeSupplement / supplementBadge 測例執行完畢');
+}
+
+// 加入時間戳參數 (Cache-Busting) 強制瀏覽器抓取最新檔案
+Promise.all([
+    fetch('data/data.json?t=' + new Date().getTime(), { cache: 'no-store' })
+        .then(r => {
+            // CR-11：先驗證 HTTP 狀態，未成功（含 SW 回傳的 503）即拋錯進 .catch，
+            // 不在資料未確認前搶先標示「已更新」。保留檔案部署時間供後續標示。
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            deployLastModified = r.headers.get('Last-Modified');
+            return r.json();
+        }),
+    loadSupplement(),   // SUP：永不 reject，補抓失敗不得阻斷主資料
+])
+    .then(([opendata, supplement]) => {
         // CR-11：根節點必須是陣列，否則視為資料損壞
-        if (!Array.isArray(data)) throw new Error('資料格式非陣列');
+        if (!Array.isArray(opendata)) throw new Error('資料格式非陣列');
+
+        // SUP：合併補抓資料後，統計與表格一律以合併後的 data 為準
+        const data = mergeSupplement(opendata, supplement);
+        renderSupplementBanner(supplement, opendata);
 
         // CR-05：區分「最新公告日期」(來自資料內容，真正的新鮮度) 與
         // 「檔案部署時間」(HTTP Last-Modified，僅代表檔案何時被部署)
@@ -486,7 +652,7 @@ fetch('data/data.json?t=' + new Date().getTime(), { cache: 'no-store' })
                 <td class="date-cell">${dateStr}</td>
                 <td><span class="badge-grade ${g.badge}" title="原始分級值：${escAttr(g.raw)}">${g.label}</span></td>
                 <td>
-                    <span class="product-name">${product}</span>
+                    <span class="product-name">${product}</span>${supplementBadge(item)}
                     <span class="meta-text">${holder} | ${licenseNo}</span>
                 </td>
                 <td class="batch-cell">${batchNo}</td>
@@ -658,8 +824,11 @@ async function checkForDataUpdate() {
     try {
         const r = await fetch('data/data.json?t=' + Date.now(), { cache: 'no-store' });
         if (!r.ok) return;
-        const d = await r.json();
-        if (!Array.isArray(d)) return;
+        const o = await r.json();
+        if (!Array.isArray(o)) return;
+        // SUP：簽章必須以「合併後」計算——初始載入的 loadedSignature 已含補抓筆，
+        // 這裡只算 opendata 會永遠不相等，導致更新橫幅常駐。
+        const d = mergeSupplement(o, await loadSupplement());
         const sig = d.length + '|' + maxAnnouncementDate(d);
         if (sig !== loadedSignature) {
             document.getElementById('updateBanner').style.display = 'flex';

@@ -1,4 +1,4 @@
-const VERSION      = 'v4';  // v4：CDN 升級 jQuery 3.7.1 / DataTables 1.13.8 並加 SRI，清舊版 CDN 快取
+const VERSION      = 'v5';  // v5：新增 data/supplement.json（公告頁補抓）走 network-first 資料路由
 const STATIC_CACHE = 'recall-static-' + VERSION;
 const DATA_CACHE   = 'recall-data-'   + VERSION;
 const CDN_CACHE    = 'recall-cdn-'    + VERSION;
@@ -97,7 +97,10 @@ async function handleStatic(request) {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  if (url.pathname.endsWith('data/data.json')) {
+  // supplement.json 與 data.json 同走 network-first：離線無快取時回 503，
+  // 由前端顯示缺口警示，絕不以空內容偽裝成「無補抓資料」。
+  if (url.pathname.endsWith('data/data.json') ||
+      url.pathname.endsWith('data/supplement.json')) {
     event.respondWith(handleData(event.request));
     return;
   }

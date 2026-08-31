@@ -1,0 +1,5 @@
+# 本機補抓排程的執行紀錄（每台機器不同，不進版控）
+update_supplement.log
+
+# 原子寫入的暫存檔；正常情況下 os.replace() 後不會留下
+*.tmp
