@@ -40,7 +40,10 @@ SUPPLEMENT_REL = "data/supplement.json"
 def log(msg):
     line = f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {msg}"
     print(line)
-    with open(LOG_PATH, "a", encoding="utf-8") as f:
+    # 首次建檔寫 BOM：Windows PowerShell 5.1 的 Get-Content 預設以 ANSI 讀取，
+    # 無 BOM 的 UTF-8 中文會顯示成亂碼（檔案本身無損，但排查時很礙事）。
+    encoding = "utf-8" if os.path.exists(LOG_PATH) else "utf-8-sig"
+    with open(LOG_PATH, "a", encoding=encoding) as f:
         f.write(line + "\n")
 
 
