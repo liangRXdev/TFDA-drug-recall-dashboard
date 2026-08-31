@@ -1,0 +1,65 @@
+# 暫時性連通性探測：驗證 Actions runner 能否直抓 consumer.fda.gov.tw 公告頁。
+# 只讀不寫、不 commit。確認結論後即刪除。
+name: Probe consumer.fda.gov.tw
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Python
+        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
+        with:
+          python-version: '3.10'
+      - name: Install dependencies
+        run: pip install requests==2.32.3
+      - name: Probe
+        run: |
+          python - <<'PY'
+          import re, sys, requests
+
+          URL = "https://consumer.fda.gov.tw/GMP/Product.aspx?nodeID=420"
+
+          # 與 scraper.py 相同的呼叫路徑：requests + TLS 驗證開啟
+          try:
+              r = requests.get(URL, timeout=30, verify=True)
+          except requests.exceptions.RequestException as e:
+              print(f"[FAIL] 請求失敗（{type(e).__name__}）：{e}")
+              sys.exit(1)
+
+          print(f"[OK] HTTP {r.status_code} bytes={len(r.content)} "
+                f"encoding={r.encoding} elapsed={r.elapsed.total_seconds():.2f}s")
+          print(f"[OK] server={r.headers.get('Server')} "
+                f"content-type={r.headers.get('Content-Type')}")
+          if r.status_code != 200:
+              print("[FAIL] 非 200")
+              sys.exit(1)
+
+          html = r.text
+          ids = [(int(m.group(1)), m.start()) for m in
+                 re.finditer(r'ProductDetail\.aspx\?nodeID=420&(?:amp;)?id=(\d+)', html)]
+          if not ids:
+              print("[FAIL] 列表頁找不到 ProductDetail 連結，版面可能已改")
+              print("[DBG] 前 500 字：", html[:500].replace("\n", " "))
+              sys.exit(1)
+
+          top_id, pos = max(ids)
+          print(f"[OK] 抓到 {len(ids)} 個 detail 連結，最大 id={top_id}")
+
+          # 取該連結所在 <tr> 的純文字，確認產品名讀得到
+          row = html.rfind("<tr", 0, pos)
+          end = html.find("</tr>", pos)
+          text = re.sub(r"<[^>]+>", " ", html[row:end]) if row != -1 else ""
+          text = re.sub(r"\s+", " ", text).strip()
+          print(f"[OK] 最新一列文字：{text[:120]}")
+
+          # 一併確認詳情頁可讀（(b) 階段會用到）
+          d = requests.get(
+              f"https://consumer.fda.gov.tw/GMP/ProductDetail.aspx?nodeID=420&id={top_id}",
+              timeout=30, verify=True)
+          print(f"[OK] detail HTTP {d.status_code} bytes={len(d.content)}")
+          hit = "發布日期" in d.text
+          print(f"[{'OK' if hit else 'FAIL'}] 詳情頁含「發布日期」欄位：{hit}")
+          sys.exit(0 if hit else 1)
+          PY
