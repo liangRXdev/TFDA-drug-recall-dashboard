@@ -12,20 +12,38 @@
   3. supplement.json 有變動才 commit + push。
   4. 全程寫入 update_supplement.log，排程沒跑或跑掛了可事後追。
 
-手動執行：
+手動執行（會顯示輸出）：
     uv run --with requests python update_supplement.py
 
+**排程一律用 venv 的 `pythonw.exe`**，不要用 `uv run`：後者是主控台程式，工作
+排程器在互動登入下執行會每天閃一個黑視窗約 16 秒。`pythonw.exe` 屬 GUI 子系統，
+不配主控台。建立 venv（只需一次）：
+    uv venv
+    uv pip install requests==2.32.3      # 版本與 CI 的 scraper 一致
+
 註冊每日排程（PowerShell 開一次即可，路徑依實際 repo 位置調整）：
-    $uv = (Get-Command uv).Source
-    $a = New-ScheduledTaskAction -Execute $uv `
-           -Argument 'run --with requests python update_supplement.py' `
-           -WorkingDirectory 'C:\\Users\\liang\\projects\\TFDA-drug-recall-dashboard'
+    $repo = 'C:\\Users\\liang\\projects\\TFDA-drug-recall-dashboard'
+    $a = New-ScheduledTaskAction -Execute "$repo\\.venv\\Scripts\\pythonw.exe" `
+           -Argument 'update_supplement.py' -WorkingDirectory $repo
     $t = New-ScheduledTaskTrigger -Daily -At 09:00
-    $s = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable
+    $s = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable `
+           -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+           -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
+           -RestartCount 2 -RestartInterval (New-TimeSpan -Minutes 15)
     Register-ScheduledTask -TaskName 'TFDA-recall-supplement' -Action $a -Trigger $t -Settings $s
 
-`-StartWhenAvailable` 讓關機錯過的排程在下次開機補跑——這台機器不是全天開，
-少了它就會靜默漏跑，而漏跑正是前端「補抓資料已 N 天未更新」紅色警示要抓的情況。
+每個參數都是修掉一個實際會咬人的預設值，別省：
+- `-StartWhenAvailable`：關機錯過的排程在下次開機補跑。這台不是全天開，少了它
+  會靜默漏跑——而漏跑正是前端「補抓資料已 N 天未更新」紅色警示要抓的情況。
+- `-AllowStartIfOnBatteries -DontStopIfGoingOnBatteries`：**預設是筆電沒插電就
+  整天不跑、跑到一半拔電源就中斷**。這是最容易漏看的一個。
+- `-ExecutionTimeLimit 10 分鐘`：預設 72 小時，16 秒的工作卡住不該拖三天。
+
+註冊後務必核對，別信預設：
+    (Get-ScheduledTask -TaskName 'TFDA-recall-supplement').Settings
+
+注意排程「執行成功」不等於「資料有更新」——git push 失敗時本檔 exit 1，但那只
+寫進 log。真正的護欄是前端那個「已 N 天未更新」的紅色橫幅，它看的是結果。
 """
 import os
 import subprocess
@@ -47,10 +65,17 @@ def log(msg):
         f.write(line + "\n")
 
 
+# 排程以 pythonw.exe 執行（無主控台）以免每日閃窗。但 git 是主控台程式，
+# 由無主控台的父行程啟動時，Windows 會**替每個子行程另開一個主控台視窗**——
+# 等於閃窗沒消掉還變成好幾個。CREATE_NO_WINDOW 才是真正壓住閃窗的那一半。
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+
 def run(cmd, **kwargs):
     """執行外部指令，回傳 CompletedProcess（不自動拋例外，由呼叫端判斷）。"""
     return subprocess.run(cmd, cwd=REPO, capture_output=True, text=True,
-                          encoding="utf-8", errors="replace", **kwargs)
+                          encoding="utf-8", errors="replace",
+                          creationflags=_NO_WINDOW, **kwargs)
 
 
 def main():

@@ -19,6 +19,7 @@
 
 ### 2. 核心功能規格
 * **自動化更新**: 透過 CI/CD 流程，每日自動向政府 API 拉取最新 JSON 資料並執行覆寫。
+* **上游停更缺口補抓**: 開放資料集停更期間，另由本機排程自官方公告頁補抓並於表中標示來源徽章；補抓資料缺失、過期或時間戳無法解析時一律顯示紅色警示（fail-closed），且不阻斷主資料渲染——寧可提醒使用者自行查證，也不讓看板在「外觀正常」下漏掉最新回收。
 * **非同步渲染**: 前端透過 `fetch()` 拉取靜態資料，具備高併發承載力與極低延遲。
 * **關鍵指標監控 (KPI)**: 即時計算「總回收件數」與第一／二／三級件數。分級以純函式 `normalizeGrade()` 正規化，統一 `第二級`/`2`/`第2級`/尾端空白等混雜格式；「疑似」與未知值標為「未確認」並排除於確定分級 KPI，避免嚴重度誤判。
 * **分級過濾器 (Grade Filter)**: 提供一鍵快速篩選特定危害等級（如：僅顯示第一級回收）的動態標籤，涵蓋數字與中文兩種原始格式。
@@ -50,5 +51,54 @@
 2.  **開啟寫入權限**: 進入 `Settings` > `Actions` > `General`，將 Workflow permissions 設為 `Read and write permissions`。
 3.  **觸發首次更新**: 進入 `Actions` 頁籤，手動觸發 `Update Data` 工作流，系統將會建立 `data/data.json` 檔案。
 4.  **啟用 GitHub Pages**: 進入 `Settings` > `Pages`，將 Source 指向 `main` 分支的 `/(root)` 並儲存。數分鐘後即可取得專屬的 Live Demo 網址。
+
+### 選用：公告頁補抓的本機排程
+
+僅在上游開放資料集停更期間需要。`consumer.fda.gov.tw` 對境外 IP 在 TLS 層封鎖
+（GitHub Actions runner 與 Cloudflare Worker 實測皆不通，詳見 [`CLAUDE.md`](CLAUDE.md)），
+因此此步驟**只能在台灣網路環境的機器上執行**。
+
+1. **建立虛擬環境**（只需一次）：
+
+   ```powershell
+   uv venv
+   uv pip install requests==2.32.3   # 版本與 CI 的 scraper 一致
+   ```
+
+2. **手動跑一次確認可抓取**：
+
+   ```powershell
+   uv run --with requests python update_supplement.py
+   ```
+
+3. **註冊每日排程**（Windows 工作排程器）：
+
+   ```powershell
+   $repo = 'C:\path\to\TFDA-drug-recall-dashboard'
+   $a = New-ScheduledTaskAction -Execute "$repo\.venv\Scripts\pythonw.exe" `
+          -Argument 'update_supplement.py' -WorkingDirectory $repo
+   $t = New-ScheduledTaskTrigger -Daily -At 09:00
+   $s = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable `
+          -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+          -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
+          -RestartCount 2 -RestartInterval (New-TimeSpan -Minutes 15)
+   Register-ScheduledTask -TaskName 'TFDA-recall-supplement' -Action $a -Trigger $t -Settings $s
+   ```
+
+   用 venv 的 `pythonw.exe` 而非 `uv run`，是為了避免每天閃出主控台視窗
+   （`pythonw.exe` 屬 GUI 子系統，不配主控台）。`-AllowStartIfOnBatteries`
+   等參數各自對應一個會咬人的預設值，理由見 `update_supplement.py` 的
+   docstring；註冊後請以
+   `(Get-ScheduledTask -TaskName 'TFDA-recall-supplement').Settings` 逐項核對。
+
+**已知限制**：公告頁只列出最新 10 則公告，補抓涵蓋範圍即為這 10 則。若開放資料
+停更超過 10 則公告（依歷史發布頻率約 4–5 個月），更舊的缺口需改以詳情頁 id
+遞減走訪才抓得到。
+
+**注意**：排程顯示「執行成功」不等於資料有更新——`git push` 失敗時腳本以非零
+狀態結束，但那只寫進 `update_supplement.log`。真正的護欄是前端「補抓資料已 N 天
+未更新」的紅色橫幅，它檢查的是結果而非排程狀態。
+
+---
 
 > **資料來源聲明**：本看板資料主要介接自 [政府資料開放平臺 - 藥品回收資料集](https://data.gov.tw/dataset/6947)；該資料集停更期間的缺口另自 [食藥署回收專區公告頁](https://consumer.fda.gov.tw/GMP/Product.aspx?nodeID=420) 補抓並於表中標示「公告頁補抓」。實際回收品項與處置進度應以衛福部食藥署官方公告為準。

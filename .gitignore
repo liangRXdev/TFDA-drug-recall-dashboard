@@ -3,3 +3,6 @@ update_supplement.log
 
 # 原子寫入的暫存檔；正常情況下 os.replace() 後不會留下
 *.tmp
+
+# 排程用的本機虛擬環境（工作排程器以 .venv\Scripts\pythonw.exe 執行，避免每日閃窗）
+.venv/

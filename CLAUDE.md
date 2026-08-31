@@ -72,8 +72,16 @@ proxy——除非哪天封鎖政策變了。
 「離線不可回空陣列」是同一條病安理由。
 
 **排程**：`update_supplement.py`（先 `git pull --rebase`，因為 Actions 每天會自動
-commit `data.json`）。Windows 工作排程器每日呼叫，註冊指令寫在該檔 docstring。
-機器沒開就會漏跑，這正是前端「補抓資料已 N 天未更新」紅色警示要抓的情境。
+commit `data.json`）。Windows 工作排程器每日呼叫，註冊指令與各參數理由寫在該檔
+docstring。機器沒開就會漏跑，這正是前端「補抓資料已 N 天未更新」紅色警示要抓的情境。
+
+排程執行檔是 **venv 的 `pythonw.exe`，不是 `uv run`**——後者是主控台程式，會每天
+閃一個黑視窗。相應地 `run()` 必須帶 `CREATE_NO_WINDOW`：父行程沒有主控台時，
+Windows 會**替每個 git 子行程另開一個視窗**，等於閃窗沒消掉還變多個。
+
+工作排程器的預設值會咬人，註冊後務必核對 `.Settings`：`DisallowStartIfOnBatteries`
+與 `StopIfGoingOnBatteries` **預設皆為 True**（筆電沒插電就整天不跑），
+`ExecutionTimeLimit` 預設 72 小時。
 
 ## Service Worker（`sw.js`）
 
