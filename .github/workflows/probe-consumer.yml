@@ -1,4 +1,4 @@
-# 暫時性連通性探測：驗證 Actions runner 能否直抓 consumer.fda.gov.tw 公告頁。
+# 暫時性診斷：分辨 consumer.fda.gov.tw 連不上是「IP 被擋」還是「TLS 協商不相容」。
 # 只讀不寫、不 commit。確認結論後即刪除。
 name: Probe consumer.fda.gov.tw
 on:
@@ -7,59 +7,52 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Set up Python
-        uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b # v5.3.0
-        with:
-          python-version: '3.10'
-      - name: Install dependencies
-        run: pip install requests==2.32.3
-      - name: Probe
+      - name: Env
         run: |
-          python - <<'PY'
-          import re, sys, requests
-
-          URL = "https://consumer.fda.gov.tw/GMP/Product.aspx?nodeID=420"
-
-          # 與 scraper.py 相同的呼叫路徑：requests + TLS 驗證開啟
-          try:
-              r = requests.get(URL, timeout=30, verify=True)
-          except requests.exceptions.RequestException as e:
-              print(f"[FAIL] 請求失敗（{type(e).__name__}）：{e}")
-              sys.exit(1)
-
-          print(f"[OK] HTTP {r.status_code} bytes={len(r.content)} "
-                f"encoding={r.encoding} elapsed={r.elapsed.total_seconds():.2f}s")
-          print(f"[OK] server={r.headers.get('Server')} "
-                f"content-type={r.headers.get('Content-Type')}")
-          if r.status_code != 200:
-              print("[FAIL] 非 200")
-              sys.exit(1)
-
-          html = r.text
-          ids = [(int(m.group(1)), m.start()) for m in
-                 re.finditer(r'ProductDetail\.aspx\?nodeID=420&(?:amp;)?id=(\d+)', html)]
-          if not ids:
-              print("[FAIL] 列表頁找不到 ProductDetail 連結，版面可能已改")
-              print("[DBG] 前 500 字：", html[:500].replace("\n", " "))
-              sys.exit(1)
-
-          top_id, pos = max(ids)
-          print(f"[OK] 抓到 {len(ids)} 個 detail 連結，最大 id={top_id}")
-
-          # 取該連結所在 <tr> 的純文字，確認產品名讀得到
-          row = html.rfind("<tr", 0, pos)
-          end = html.find("</tr>", pos)
-          text = re.sub(r"<[^>]+>", " ", html[row:end]) if row != -1 else ""
-          text = re.sub(r"\s+", " ", text).strip()
-          print(f"[OK] 最新一列文字：{text[:120]}")
-
-          # 一併確認詳情頁可讀（(b) 階段會用到）
-          d = requests.get(
-              f"https://consumer.fda.gov.tw/GMP/ProductDetail.aspx?nodeID=420&id={top_id}",
-              timeout=30, verify=True)
-          print(f"[OK] detail HTTP {d.status_code} bytes={len(d.content)}")
-          hit = "發布日期" in d.text
-          print(f"[{'OK' if hit else 'FAIL'}] 詳情頁含「發布日期」欄位：{hit}")
-          sys.exit(0 if hit else 1)
-          PY
+          openssl version
+          python3 -c "import ssl; print(ssl.OPENSSL_VERSION)"
+          echo "--- runner egress IP ---"
+          curl -s --max-time 15 https://api.ipify.org || echo "(ipify unreachable)"
+          echo
+      - name: TCP reachability
+        run: |
+          echo "--- DNS ---"
+          getent hosts consumer.fda.gov.tw || echo "DNS FAIL"
+          echo "--- TCP 443 ---"
+          timeout 15 bash -c 'cat < /dev/null > /dev/tcp/consumer.fda.gov.tw/443' \
+            && echo "TCP OK（連得上，非 IP 層封鎖）" || echo "TCP FAIL（IP 層被擋或無回應）"
+      - name: openssl s_client handshake
+        run: |
+          for v in tls1_3 tls1_2 tls1_1; do
+            echo "===== $v ====="
+            timeout 20 openssl s_client -connect consumer.fda.gov.tw:443 \
+              -servername consumer.fda.gov.tw -$v -brief </dev/null 2>&1 | head -20 || true
+          done
+      - name: openssl SECLEVEL=1 / legacy renegotiation
+        run: |
+          echo "===== SECLEVEL=1 ====="
+          timeout 20 openssl s_client -connect consumer.fda.gov.tw:443 \
+            -servername consumer.fda.gov.tw -cipher 'DEFAULT@SECLEVEL=1' -brief </dev/null 2>&1 | head -20 || true
+          echo "===== legacy renegotiation ====="
+          timeout 20 openssl s_client -connect consumer.fda.gov.tw:443 \
+            -servername consumer.fda.gov.tw -legacy_renegotiation -brief </dev/null 2>&1 | head -20 || true
+      - name: curl variants
+        run: |
+          echo "===== curl 預設 ====="
+          curl -s -o /dev/null --max-time 25 -w 'http=%{http_code} tls=%{ssl_verify_result}\n' \
+            https://consumer.fda.gov.tw/GMP/Product.aspx?nodeID=420 || echo "curl exit=$?"
+          echo "===== curl --tlsv1.2 --tls-max 1.2 ====="
+          curl -s -o /dev/null --max-time 25 --tlsv1.2 --tls-max 1.2 -w 'http=%{http_code}\n' \
+            https://consumer.fda.gov.tw/GMP/Product.aspx?nodeID=420 || echo "curl exit=$?"
+          echo "===== curl -A 瀏覽器 UA ====="
+          curl -s -o /dev/null --max-time 25 -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' \
+            -w 'http=%{http_code}\n' https://consumer.fda.gov.tw/GMP/Product.aspx?nodeID=420 || echo "curl exit=$?"
+      - name: Control — data.fda.gov.tw（已知可通）
+        run: |
+          curl -s -o /dev/null --max-time 25 -w 'data.fda.gov.tw http=%{http_code}\n' \
+            https://data.fda.gov.tw/data/opendata/export/34/json || echo "curl exit=$?"
+      - name: Other .gov.tw hosts（判斷是否整片 .gov.tw 都不通）
+        run: |
+          for h in www.fda.gov.tw www.nhi.gov.tw www.mohw.gov.tw; do
+            curl -s -o /dev/null --max-time 20 -w "$h http=%{http_code}\n" "https://$h/" || echo "$h curl exit=$?"
+          done
