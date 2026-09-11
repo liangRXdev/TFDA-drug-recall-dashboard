@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-10T14:51:04+08:00",
+  "generated_at": "2026-09-11T20:56:29+08:00",
   "source": "衛生福利部食品藥物管理署 - 西藥、醫療器材、化粧品回收專區",
   "list_url": "https://consumer.fda.gov.tw/GMP/Product.aspx?nodeID=420",
   "checked_ids": [
@@ -14,21 +14,7 @@
     1827,
     1826
   ],
-  "opendata_count": 1712,
-  "opendata_latest": "2026/08/10",
-  "records": [
-    {
-      "回收分級": "第二級",
-      "文號": "115年8月3日FDA藥字第1150715052號（食藥署藥品組）",
-      "日期": "2026/08/26",
-      "產品": "百肯膜衣錠5毫克 Biocor Film Coated Tablets 5 mg",
-      "許可證字號": "衛署藥製字第048905號",
-      "批號": "BCLA91，共1批藥品。",
-      "許可證持有者": "瑩碩生技醫藥股份有限公司",
-      "原因": "廠商主動通報，案內藥品於連續性安定性試驗，有不純物含量達檢驗規格上限之情形，故啟動回收。",
-      "_來源": "公告頁",
-      "_公告頁id": 1835,
-      "_公告頁網址": "https://consumer.fda.gov.tw/GMP/ProductDetail.aspx?nodeID=420&id=1835"
-    }
-  ]
+  "opendata_count": 1713,
+  "opendata_latest": "2026/08/26",
+  "records": []
 }
