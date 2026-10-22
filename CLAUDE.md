@@ -116,6 +116,7 @@ Windows 會**替每個 git 子行程另開一個視窗**，等於閃窗沒消掉
 - `requests==2.32.3` 鎖版本
 - GitHub Actions 固定完整 commit SHA（非 tag）——`checkout` v4.2.2、`setup-python` v5.3.0
 - commit step 必須同時 `git add data/data.json data/status.json`。少加 `status.json`，heartbeat 就不進版控
+- 入口驗證測試（本機，CI 未接）：`uv run --no-project --with pytest --with requests==2.32.3 python -m pytest tests -q`。核心欄位「缺少」含 null／空白字串（只查 key 存在會放行 key 齊全但值全空的壞 feed）
 
 ## 樣式
 

@@ -93,10 +93,19 @@ def validate_structure(data):
     if non_dict:
         raise ValidationError(f"有 {non_dict} 筆非物件記錄，結構異常")
     for key in CORE_KEYS:
-        missing = sum(1 for item in data if key not in item)
+        # 「缺少」含 key 不存在、值為 null 或空白字串：上游 export 出錯時常是
+        # key 齊全但值全空，只查 key 存在會整批放行並覆寫看板（2026-10-22 review）
+        missing = sum(1 for item in data if is_blank(item.get(key)))
         if missing > len(data) * 0.5:
             raise ValidationError(
                 f"逾半數記錄缺少核心欄位「{key}」({missing}/{len(data)})，feed 結構已變")
+
+
+def is_blank(value):
+    """None、空字串或全空白視為缺值；非字串的有值型別（數字等）不算缺。"""
+    if value is None:
+        return True
+    return isinstance(value, str) and not value.strip()
 
 
 # ── 前版比對（硬性 + 軟性）───────────────────────────────────────────
