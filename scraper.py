@@ -21,7 +21,7 @@
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import requests
 
@@ -29,11 +29,13 @@ URL = "https://data.fda.gov.tw/data/opendata/export/34/json"
 SOURCE = "政府資料開放平臺 - 藥品回收資料集 (dataset 6947)"
 DATA_PATH = os.path.join("data", "data.json")
 STATUS_PATH = os.path.join("data", "status.json")
+TAIPEI = timezone(timedelta(hours=8))  # 台灣無夏令時間，固定 +08:00 即可，不需 zoneinfo
 
 # ── 驗證門檻 ──────────────────────────────────────────────────────────
 MIN_ABSOLUTE_COUNT = 100      # 低於此筆數視為資料源失效
 MAX_SHRINK_RATIO = 0.90       # 新筆數 < 前版 * 此比例 → 暴跌，硬擋
 MAX_DELETION_RATIO = 0.05     # 消失記錄 > 前版 * 此比例 → 軟警告
+STALE_WARN_DAYS = 14          # 最新公告距今逾此天數 → 軟警告（TFDA 正常每 1–2 週有公告）
 
 EXPECTED_KEYS = ["回收分級", "文號", "日期", "產品",
                  "許可證字號", "批號", "許可證持有者", "原因"]
@@ -163,6 +165,30 @@ def soft_checks(data):
     return warnings, grade_dist
 
 
+def staleness_warning(latest, today, max_days=STALE_WARN_DAYS):
+    """最新公告距今逾 max_days 天 → 警告字串，否則 None。**軟警告，不擋**。
+
+    2026-10-22 review M3：opendata 自 08-26 停更 57 天，CI 每天綠燈，status.json 寫了
+    無人讀。不改成硬擋：停更時 data.json 本身沒有錯，擋下只會讓 heartbeat 也停，
+    而缺口已由公告頁補抓（supplement）填補。要的是**讓人在 Actions 頁面看得到**。
+    """
+    if latest is None:
+        return "資料集內沒有任何可解析的公告日期，無法判斷上游是否停更"
+    days = (today - latest).days
+    if days > max_days:
+        return (f"opendata 最新公告停在 {latest.isoformat()}，已 {days} 天未更新"
+                f"（>{max_days} 天）；請確認公告頁補抓（supplement）仍在執行")
+    return None
+
+
+def emit_warning(message):
+    """寫 stderr；在 GitHub Actions 內另輸出 `::warning::` annotation（run 摘要頁可見）。"""
+    print(f"[WARN] {message}", file=sys.stderr)
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        # annotation 只吃單行：換行會截斷訊息
+        print(f"::warning title=TFDA recall scraper::{message.replace(chr(10), ' ')}")
+
+
 # ── 原子寫入 ─────────────────────────────────────────────────────────
 def atomic_write_json(path, payload):
     """先寫同目錄暫存檔再 os.replace() 原子取代，避免半寫壞檔。"""
@@ -207,6 +233,11 @@ def main():
     soft_warns, grade_dist = soft_checks(data)
     warnings += soft_warns
     latest = latest_date(data)
+    # 以台灣日曆日判斷：runner 是 UTC，排程在台灣凌晨 4:00，UTC 還是前一天
+    today_tw = datetime.now(timezone.utc).astimezone(TAIPEI).date()
+    stale = staleness_warning(latest, today_tw)
+    if stale:
+        warnings.append(stale)
 
     try:
         atomic_write_json(DATA_PATH, data)
@@ -216,7 +247,7 @@ def main():
         return 1
 
     for w in warnings:
-        print(f"[WARN] {w}", file=sys.stderr)
+        emit_warning(w)
     print(f"抓取與驗證成功：{len(data)} 筆，"
           f"最新公告 {latest.isoformat() if latest else '未知'}，"
           f"警告 {len(warnings)} 則。")

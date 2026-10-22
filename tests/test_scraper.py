@@ -59,3 +59,33 @@ def test_record_key_drift_is_soft_warning_not_block():
 def test_shrink_is_hard_blocked():
     with pytest.raises(ValidationError, match="暴跌"):
         compare_with_previous(good(150), good(200))
+
+
+# ── M3：上游停更的軟警告（2026-10-22 review）──────────────────────────
+from datetime import date  # noqa: E402
+
+
+def test_stale_upstream_warns_but_does_not_block():
+    msg = scraper.staleness_warning(date(2026, 8, 26), date(2026, 10, 22))
+    assert msg is not None and "57 天" in msg and "2026-08-26" in msg
+
+
+@pytest.mark.parametrize("days,warns", [(14, False), (15, True)])
+def test_stale_threshold_boundary(days, warns):
+    today = date(2026, 10, 22)
+    latest = date.fromordinal(today.toordinal() - days)
+    assert (scraper.staleness_warning(latest, today) is not None) is warns
+
+
+def test_no_parsable_date_warns():
+    assert scraper.staleness_warning(None, date(2026, 10, 22)) is not None
+
+
+def test_annotation_only_in_actions(monkeypatch, capsys):
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    scraper.emit_warning("甲\n乙")
+    assert "::warning" not in capsys.readouterr().out
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    scraper.emit_warning("甲\n乙")
+    out = capsys.readouterr().out
+    assert out.startswith("::warning ") and "甲 乙" in out and "\n" not in out.rstrip("\n")
