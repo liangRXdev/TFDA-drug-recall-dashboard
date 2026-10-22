@@ -89,7 +89,7 @@ Windows 會**替每個 git 子行程另開一個視窗**，等於閃窗沒消掉
 - **cache 刪除只限 `recall-` 前綴**（`CACHE_PREFIX`）。origin 與你其他 GH Pages 專案共用，全刪會誤傷別的應用
 - **離線且無快取回 503，不可回 `[]`**——空陣列會偽裝成「查無回收」，在病安場景是危險的假陰性
 - 前端載入前驗 `r.ok` + `Array.isArray`
-- **改 shell 或 CDN → 升 `VERSION`**（目前 `v5`）
+- **改 shell 或 CDN → 升 `VERSION`**（目前 `v7`）
 - `data/supplement.json` 與 `data.json` 同走 `handleData`（network-first、離線無快取回 503）
 
 ## 前端

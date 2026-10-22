@@ -31,7 +31,7 @@
 - [ ] 導覽列總筆數 = `data.json` 筆數 + 補抓筆數；分級 pill 亦已計入補抓筆
 - [ ] 徽章連結指向 `consumer.fda.gov.tw/GMP/ProductDetail.aspx?...`，於新分頁開啟
 - [ ] **補抓檔缺失**：暫時移走 `data/supplement.json` 重載 → **紅色**警示「無法載入公告頁補抓資料…切勿據此判定『無新回收』」，且**主資料仍正常渲染**（不得因補抓失敗而阻斷）
-- [ ] **補抓檔過期**：把 `generated_at` 改成 8 天前 → 紅色警示「已 N 天未更新」
+- [ ] **補抓檔過期**：把 `generated_at` 改成 4 天前（門檻 `SUPPLEMENT_STALE_DAYS` = 3）→ 紅色警示「已 N 天未更新」；分頁開著不重整，切走再切回（觸發 `checkForDataUpdate`）也要轉紅
 - [ ] **`generated_at` 損壞**：改成非日期字串 → 一樣顯示紅色警示（fail-closed，不可靜默放行）
 - [ ] **無缺口**：把 `records` 改成 `[]` 且 `generated_at` 為今日 → 橫幅**不顯示**（不打擾）
 - [ ] 補抓筆與 opendata 同一則公告不得重複出現（改 `data.json` 令其含補抓筆，重載後總數不變）

@@ -1,4 +1,4 @@
-const VERSION      = 'v6';  // v6：表頭「發文日期」更正為「發布日期」；v5：新增 data/supplement.json（公告頁補抓）走 network-first 資料路由
+const VERSION      = 'v7';  // v7：補抓橫幅於前景更新偵測時重判新鮮度、過期門檻 7→3 天；v6：表頭「發文日期」更正為「發布日期」；v5：新增 data/supplement.json（公告頁補抓）走 network-first 資料路由
 const STATIC_CACHE = 'recall-static-' + VERSION;
 const DATA_CACHE   = 'recall-data-'   + VERSION;
 const CDN_CACHE    = 'recall-cdn-'    + VERSION;

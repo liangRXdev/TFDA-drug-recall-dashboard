@@ -445,7 +445,9 @@ if (new URLSearchParams(location.search).get('selftest') === '1') {
 // 補抓檔由本機 supplement_scraper.py 產生（該站封鎖境外 IP，CI 抓不到，
 // 詳見該檔開頭的實測紀錄）。合併規則：opendata 為準，補抓只補其未收錄者。
 const SUPPLEMENT_URL = 'data/supplement.json';
-const SUPPLEMENT_STALE_DAYS = 7;   // 超過此天數未更新 → 視為過期，升為紅色警示
+// 超過此天數未更新 → 視為過期，升為紅色警示。原為 7：本機排程 10/17–19 漏跑 3 天
+// 而無任何提示（review M2）。3 天容得下週末關機一次，再久就示警——寧可誤報
+const SUPPLEMENT_STALE_DAYS = 3;
 const SUPPLEMENT_LIST_URL = 'https://consumer.fda.gov.tw/GMP/Product.aspx?nodeID=420';
 const SUPPLEMENT_LINK_PREFIX = 'https://consumer.fda.gov.tw/GMP/ProductDetail.aspx?nodeID=420&id=';
 
@@ -828,7 +830,11 @@ async function checkForDataUpdate() {
         if (!Array.isArray(o)) return;
         // SUP：簽章必須以「合併後」計算——初始載入的 loadedSignature 已含補抓筆，
         // 這裡只算 opendata 會永遠不相等，導致更新橫幅常駐。
-        const d = mergeSupplement(o, await loadSupplement());
+        const supplement = await loadSupplement();
+        const d = mergeSupplement(o, supplement);
+        // 補抓新鮮度每次都重判：只在載入時判一次的話，常駐分頁的橫幅永遠停在「新」
+        // ——補抓排程停了好幾天，看板仍顯示藍色正常（2026-10-22 review M1）
+        renderSupplementBanner(supplement, o);
         const sig = d.length + '|' + maxAnnouncementDate(d);
         if (sig !== loadedSignature) {
             document.getElementById('updateBanner').style.display = 'flex';
